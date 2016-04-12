@@ -55,23 +55,33 @@ class instagram:
         else:
             rdest = os.path.join(self.dest, dest)
         imgwrite = os.path.join(rdest, imgname)
-        if not os.path.exists(imgwrite):
-            r = requests.get(imgurl)
-            with open(imgwrite, "wb") as code:
-                code.write(r.content)
-            self.logger.logEntry(('downloaded ' + imgname), 'progress')
-            self.results['succeeded'] += 1
-            return True
-        else:
-            self.logger.logEntry(('already have ' + imgname),
-                                 'verbose')
-            self.results['skipped'] += 1
-            return True
-        # except:
-        #     self.logger.logEntry('failed to get: {0} from {1}'.format(
-        #         imgurl, imgname), 'verbose')
-        #     self.results['failed'] += 1
-        #     return None
+        try:
+            if not os.path.exists(imgwrite):
+                r = requests.get(imgurl)
+                with open(imgwrite, "wb") as code:
+                    code.write(r.content)
+                self.logger.logEntry(('downloaded ' + imgname), 'progress')
+                self.results['succeeded'] += 1
+                return True
+            else:
+                self.logger.logEntry(('already have ' + imgname),
+                                     'verbose')
+                self.results['skipped'] += 1
+                return True
+        except:
+            self.logger.logEntry('failed to get: {0} from {1}'.format(
+                imgurl, imgname), 'verbose')
+            self.results['failed'] += 1
+            return None
+
+    def findWindowSharedData(self, pageurl):
+        page = requests.get(pageurl).content
+        soup = BeautifulSoup(page, "html.parser")
+        scripts = soup.find_all('script')
+        for each in scripts:
+            if each.string:
+                if each.string.startswith('window._sharedData'):
+                    return each.string.split(' = ')[-1]
 
     def getLinksForGalleryPage(self, url):
         """
@@ -85,45 +95,34 @@ class instagram:
         username = baseurl.split('/')[-2]
         print "Downloaded {1} images. Scanning {0}...".format(
             url, self.results['succeeded'])
-        gallery = requests.get(url).content
-        galsoup = BeautifulSoup(gallery, "html.parser")
-        imglink = galsoup.find_all('script')
-        for each in imglink:
-            if each.string:
-                if each.string.startswith('window._sharedData'):
-                    payloadRaw = each.string.split(' = ')[1]
-                    payloadRaw = re.sub('/', '', payloadRaw)
-                    payload = re.findall('https.*?\.jpg', payloadRaw)
-                    for link in payload:
-                        # they're using some sort of JSON-derived format
-                        # that is not parseable by simplejson or yaml,
-                        # so we need to fix the weird '\/' escape sequences
-                        # manually
-                        result = re.sub(
-                            '\\\\\\\\',
-                            '/',
-                            link)
-                        result = re.sub(
-                            '\\\\',
-                            '/',
-                            result)
-                        # now re-double the initial \ and drop https:
-                        result = re.sub(
-                            'https:/',
-                            'http://',
-                            result)
-                        self.downloadImage(result, dest=username)
-                    hasNextId = re.search(
-                        '(?<=has_next_page"\:)[truefals]*',
-                        payloadRaw)
-                    if hasNextId.group(0) == "true":
-                        nextId = re.search(
-                            '(?<=end_cursor"\:")[0-9]*',
-                            payloadRaw)
-                        nextUrl = self.baseUrl + "?max_id=" + nextId.group(0)
-                        self.getLinksForGalleryPage(nextUrl)
-                    else:
-                        return
+        payloadRaw = self.findWindowSharedData(url)
+        payloadRaw = re.sub('/', '', payloadRaw)
+        postIds = re.findall(
+            '(?<=\{"code":").*?"',
+            payloadRaw)
+        for code in postIds:
+            hrlink = self.getHighResLink(code[:-1])
+            self.downloadImage(hrlink, dest=username)
+        hasNextId = re.search(
+            '(?<=has_next_page":)[truefals]*',
+            payloadRaw)
+        if hasNextId.group(0) == "true":
+            nextId = re.search(
+                '(?<=end_cursor":")[0-9]*',
+                payloadRaw)
+            nextUrl = self.baseUrl + "?max_id=" + nextId.group(0)
+            self.getLinksForGalleryPage(nextUrl)
+        else:
+            return
+
+    def getHighResLink(self, code):
+        pageurl = 'https://www.instagram.com/p/{0}/?hl=en'.format(code)
+        payloadRaw = self.findWindowSharedData(pageurl)
+        hrlink = re.findall(
+            '(?<="display_src":").*?\?',
+            payloadRaw)[0]
+        hrlink = hrlink.replace('\\', '')[:-1]
+        return hrlink
 
 
 if __name__ == "__main__":
