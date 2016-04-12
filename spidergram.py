@@ -5,6 +5,7 @@ import os
 import codecs
 import unidecode
 import arrow
+import traceback
 
 # disable warning about HTTPS
 try:
@@ -55,6 +56,8 @@ class instagram:
         else:
             rdest = os.path.join(self.dest, dest)
         imgwrite = os.path.join(rdest, imgname)
+        if not os.path.exists(rdest):
+            os.makedirs(rdest)
         try:
             if not os.path.exists(imgwrite):
                 r = requests.get(imgurl)
@@ -69,8 +72,11 @@ class instagram:
                 self.results['skipped'] += 1
                 return True
         except:
-            self.logger.logEntry('failed to get: {0} from {1}'.format(
-                imgurl, imgname), 'verbose')
+            exc = traceback.format_exc()
+            print exc
+            self.logger.logEntry(
+                'failed to get: {0} from {1} - Traceback:\n{2}'.format(
+                imgurl, imgname, exc), 'verbose')
             self.results['failed'] += 1
             return None
 
@@ -85,12 +91,12 @@ class instagram:
 
     def getLinksForGalleryPage(self, url):
         """
-        Recursive function to traverse the script payload that apparently is
-        used to load Instagram pages completely on the fly. Pulls each individual
-        "page" - which is apparently 49 images by the user, delineated by the
-        "start_cursor" and "end_cursor" in the payload - so that it can be parsed
-        for images, and then uses the ending cursor to generate the link to the
-        next "page".
+        Recursive function to traverse the script payload that apparently
+        is used to load Instagram pages completely on the fly. Pulls each
+        individual "page" - which is apparently 24 images by the user,
+        delineated by the "start_cursor" and "end_cursor" in the payload -
+        so that it can be parsed for images, and then uses the ending cursor
+        to generate the link to the next "page".
         """
         username = baseurl.split('/')[-2]
         print "Downloaded {1} images. Scanning {0}...".format(
@@ -133,4 +139,3 @@ if __name__ == "__main__":
     baseurl = "https://www.instagram.com/13thwitness/"
     site.setBaseUrl(baseurl)
     site.getLinksForGalleryPage(baseurl)
-
